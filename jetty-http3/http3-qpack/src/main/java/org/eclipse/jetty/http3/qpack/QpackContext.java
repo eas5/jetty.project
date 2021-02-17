@@ -38,7 +38,8 @@ public class QpackContext
 
     QpackContext(int maxDynamicTableSize)
     {
-        _dynamicTable = new DynamicTable(maxDynamicTableSize);
+        _dynamicTable = new DynamicTable();
+        _dynamicTable.setCapacity(maxDynamicTableSize);
         if (LOG.isDebugEnabled())
             LOG.debug(String.format("HdrTbl[%x] created max=%d", hashCode(), maxDynamicTableSize));
     }

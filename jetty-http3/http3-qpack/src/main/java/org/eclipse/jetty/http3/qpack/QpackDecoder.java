@@ -20,6 +20,8 @@ import org.eclipse.jetty.http.HttpHeader;
 import org.eclipse.jetty.http.HttpTokens;
 import org.eclipse.jetty.http.MetaData;
 import org.eclipse.jetty.http3.qpack.generator.Instruction;
+import org.eclipse.jetty.http3.qpack.parser.EncodedFieldLines;
+import org.eclipse.jetty.http3.qpack.parser.NBitIntegerParser;
 import org.eclipse.jetty.http3.qpack.table.Entry;
 import org.eclipse.jetty.util.BufferUtil;
 import org.slf4j.Logger;
@@ -38,6 +40,8 @@ public class QpackDecoder
     private final QpackContext _context;
     private final MetaDataBuilder _builder;
     private int _localMaxDynamicTableSize;
+
+    private final NBitIntegerParser _integerDecoder = new NBitIntegerParser();
 
     /**
      * @param localMaxDynamicTableSize The maximum allowed size of the local dynamic header field table.
@@ -67,7 +71,7 @@ public class QpackDecoder
         void onInstruction(Instruction instruction);
     }
 
-    public MetaData decode(ByteBuffer buffer) throws QpackException.SessionException, QpackException.StreamException
+    public MetaData decode(ByteBuffer buffer) throws QpackException
     {
         if (LOG.isDebugEnabled())
             LOG.debug(String.format("CtxTbl[%x] decoding %d octets", _context.hashCode(), buffer.remaining()));
@@ -76,8 +80,29 @@ public class QpackDecoder
         if (buffer.remaining() > _builder.getMaxSize())
             throw new QpackException.SessionException("431 Request Header Fields too large");
 
-        boolean emitted = false;
+        int requiredInsertCount = _integerDecoder.decode(buffer);
+        if (requiredInsertCount < 0)
+            throw new QpackException.CompressionException("Could not parse Required Insert Count");
 
+        boolean signBit  = (buffer.get(buffer.position()) & 0x80) != 0;
+        int deltaBase = _integerDecoder.decode(buffer);
+        if (deltaBase < 0)
+            throw new QpackException.CompressionException("Could not parse Delta Base");
+
+
+        // Remaining data is Encoded Field Lines.
+        class EncodedEntry
+        {}
+
+        EncodedFieldLines encodedFieldLines = new EncodedFieldLines(requiredInsertCount, signBit, deltaBase);
+        encodedFieldLines.parse(buffer);
+
+        encodedFieldLines.canDecode();
+
+        // Only when the RequiredInsertCount is reached we can decode this.
+        // After decoding send back a SectionAcknowledgment.
+
+        boolean emitted = false;
         while (buffer.hasRemaining())
         {
             if (LOG.isDebugEnabled())
